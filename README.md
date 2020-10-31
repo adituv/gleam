@@ -16,6 +16,8 @@
 <!-- A spacer -->
 <div>&nbsp;</div>
 
+<h2>Do not use this branch!  It is a temporary hacky split into lib/exe for the purposes of developing language tools!</h2>
+
 Gleam is a statically typed functional programming language for building
 scalable concurrent systems. It compiles to [Erlang](http://www.erlang.org/)
 and has straightforward interop with other BEAM languages such as Erlang,
