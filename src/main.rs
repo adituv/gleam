@@ -44,8 +44,20 @@
 use std::path::PathBuf;
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
+use strum::VariantNames;
 
-use gleam;
+use gleam::build;
+use gleam::config;
+use gleam::docs;
+use gleam::erl;
+use gleam::error::Error;
+use gleam::eunit;
+use gleam::format;
+use gleam::fs;
+use gleam::new;
+use gleam::project;
+use gleam::shell;
+use gleam::warning;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
