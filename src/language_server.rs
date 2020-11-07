@@ -2,6 +2,7 @@ mod document;
 mod format;
 mod vfs;
 
+use self::document::Document;
 use self::format::format;
 use self::vfs::VFS;
 use crate::error::Error::LspIoError;
@@ -13,6 +14,7 @@ use tower_lsp::jsonrpc::{Error, ErrorCode, Result};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
+use std::cmp::Ordering;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -46,11 +48,82 @@ impl LanguageServer for ServerBackend {
             .create_document(&params.text_document.uri, &params.text_document.text);
     }
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        // TODO: validate versioned changes
+        let doc_version = match self
+            .vfs
+            .with_document(&params.text_document.uri, Document::version)
+        {
+            None => {
+                // Document is not currently opened, so we can't update changes to it.
+                // Log warning to the client and do nothing.
 
-        self.vfs.modify_document(&params.text_document.uri, |doc| {
-            doc.apply_content_changes(&params.content_changes)
-        });
+                let error_message = format!(
+                    "Received didChange event for unopened document.\n\tDocument: {}",
+                    params.text_document.uri.path(),
+                );
+                self.client
+                    .log_message(MessageType::Warning, error_message)
+                    .await;
+
+                return;
+            }
+            Some(ver) => ver,
+        };
+
+        match params.text_document.version {
+            None => {
+                // This should not happen!  While the field is nullable, null is only valid
+                // when sent from server to client in certain situations.
+                // We may be able to recover and continue, but it risks corrupting the document
+                // in question, so it is safest to just pass the error to the client and
+                // to panic.
+
+                let error_message = format!(
+                    "Received version null in didChange notification.\n\tDocument: {}",
+                    params.text_document.uri.path()
+                );
+                self.client
+                    .log_message(MessageType::Error, &error_message)
+                    .await;
+                panic!(error_message);
+            }
+            Some(version) => {
+                match doc_version.cmp(&version) {
+                    Ordering::Equal => {
+                        self.vfs.modify_document(&params.text_document.uri, |doc| {
+                            doc.apply_content_changes(&params.content_changes);
+                        });
+                    }
+                    Ordering::Less => {
+                        // We are being asked to operate on a version of the document that we
+                        // do not have.  All we can do is error and panic.
+
+                        let error_message = format!(
+                            "Text synchronization failed.\n\tDocument: {}\n\tServer version: {}\n\tClient version:{}",
+                            params.text_document.uri.path(),
+                            doc_version,
+                            version,
+                        );
+                        self.client
+                            .log_message(MessageType::Error, &error_message)
+                            .await;
+                        panic!(error_message);
+                    }
+                    Ordering::Greater => {
+                        // We have a newer version than the one being sent, so ignore the changes.
+
+                        let log_message = format!(
+                            "Skipping didChange - version on server newer.\n\tDocument: {}\n\tServer version: {}\n\tClient version:{}",
+                            params.text_document.uri.path(),
+                            doc_version,
+                            version,
+                        );
+                        self.client
+                            .log_message(MessageType::Info, log_message)
+                            .await;
+                    }
+                }
+            }
+        };
     }
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         self.vfs.evict_document(&params.text_document.uri);

@@ -27,6 +27,10 @@ impl Document {
     pub fn contents(&self) -> &str {
         &self.contents
     }
+
+    pub fn version(&self) -> i64 {
+        self.version
+    }
 }
 
 fn apply_content_change(contents: &str, change: &TextDocumentContentChangeEvent) -> String {
